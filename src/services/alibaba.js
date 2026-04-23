@@ -36,10 +36,18 @@ async function searchAlibabaOfficial({ keyword, pageSize = 20 }) {
 
   console.log(`🔗 Calling Alibaba API for: "${keyword}"`);
 
-  const response = await axios.get(url, {
-    params,
-    timeout: 12000,
+const response = await axios.get(url, {
+  params,
+  timeout: 12000,
+}).catch(error => {
+  // Log the full error response
+  console.error("❌ Alibaba full error:", {
+    status:  error.response?.status,
+    data:    JSON.stringify(error.response?.data),
+    message: error.message,
   });
+  throw error;
+});
 
   console.log("📦 Alibaba raw response:", JSON.stringify(response.data).slice(0, 300));
 
