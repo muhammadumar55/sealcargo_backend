@@ -2,11 +2,15 @@ import axios from "axios";
 import crypto from "crypto";
 import { chromium } from "playwright";
 
+/* ─────────────────────────────────────────────────────────────
+   1️⃣ Alibaba Official API
+───────────────────────────────────────────────────────────── */
 
-// ── Alibaba Official API ──────────────────────────────────────────────────────
 async function searchAlibabaOfficial({ keyword, pageSize = 20 }) {
   const appKey    = process.env.ALIBABA_APP_KEY;
   const appSecret = process.env.ALIBABA_APP_SECRET;
+
+  if (!appKey || !appSecret) return [];
 
   const params = {
     app_key:     appKey,
@@ -19,9 +23,8 @@ async function searchAlibabaOfficial({ keyword, pageSize = 20 }) {
     language:    "en_US",
   };
 
-  // Generate HMAC-SHA1 signature
-  const sortedKeys   = Object.keys(params).sort();
-  let   stringToSign = "";
+  const sortedKeys = Object.keys(params).sort();
+  let stringToSign = "";
   sortedKeys.forEach((key) => {
     stringToSign += key + params[key];
   });
@@ -36,121 +39,103 @@ async function searchAlibabaOfficial({ keyword, pageSize = 20 }) {
 
   const url = `https://gw.api.alibaba.com/openapi/param2/1/com.alibaba.product/alibaba.product.search/${appKey}`;
 
-  console.log(`🔗 Calling Alibaba API for: "${keyword}"`);
-
-const response = await axios.get(url, {
-  params,
-  timeout: 12000,
-}).catch(error => {
-  // Log the full error response
-  console.error("❌ Alibaba full error:", {
-    status:  error.response?.status,
-    data:    JSON.stringify(error.response?.data),
-    message: error.message,
-  });
-  throw error;
-});
-
-  console.log("📦 Alibaba raw response:", JSON.stringify(response.data).slice(0, 300));
-
-  return normalizeAlibabaResults(response.data);
+  try {
+    const response = await axios.get(url, { params, timeout: 12000 });
+    return normalizeAlibabaResults(response.data);
+  } catch (error) {
+    console.error("❌ Alibaba API error:", error.message);
+    return [];
+  }
 }
 
 function normalizeAlibabaResults(rawData) {
-  // Try different response structures
   const products =
     rawData?.result?.products ||
     rawData?.result?.productList ||
     rawData?.products ||
     [];
 
-  if (!products.length) {
-    console.log("⚠️  Alibaba returned 0 products — response:", JSON.stringify(rawData).slice(0, 500));
-    return [];
-  }
+  if (!products.length) return [];
 
   return products.map((product, index) => ({
     id:              product.productId   || index + 1,
-    name:            product.companyName || product.supplierName || product.subjectTrans || "Unknown Supplier",
+    name:            product.companyName || product.supplierName || "Unknown Supplier",
     rating:          parseFloat(product.supplierRating) || 4.5,
-    reviews:         parseInt(product.reviewCount)      || 0,
+    reviews:         parseInt(product.reviewCount) || 0,
     moq:             parseInt(product.minOrderQuantity) || 100,
     price:           parseFloat(product.priceInfo?.price || product.price) || 0,
     verified:        product.supplierVerified || false,
     location:        `${product.city || "China"}, ${product.country || "CN"}`,
-    yearsInBusiness: parseInt(product.businessYears)   || 0,
-    responseRate:    parseInt(product.responseRate)     || 85,
-    tags:            product.supplierBadges             || [],
-    contactEmail:    product.contactEmail               || "",
-    contactPhone:    product.contactPhone               || "",
-    imageUrl:        product.imageUrl                   || "",
-    productUrl:      product.productDetailUrl           || "",
+    yearsInBusiness: parseInt(product.businessYears) || 0,
+    responseRate:    parseInt(product.responseRate) || 85,
+    tags:            product.supplierBadges || [],
+    contactEmail:    product.contactEmail || "",
+    contactPhone:    product.contactPhone || "",
+    imageUrl:        product.imageUrl || "",
+    productUrl:      product.productDetailUrl || "",
   }));
 }
 
-// ── AliExpress via RapidAPI ───────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   2️⃣ AliExpress RapidAPI
+───────────────────────────────────────────────────────────── */
+
 async function searchAliExpressRapid({ keyword, pageSize = 20 }) {
   const apiKey = process.env.RAPIDAPI_KEY;
+  if (!apiKey) return [];
 
-  const response = await axios.get(
-    "https://aliexpress-datahub.p.rapidapi.com/item_search_3",
-    {
-      params: {
-        q:    keyword,
-        page: 1,
-        sort: "SALE_PRICE_ASC",
-      },
-      headers: {
-        "X-RapidAPI-Key":  apiKey,
-        "X-RapidAPI-Host": "aliexpress-datahub.p.rapidapi.com",
-      },
-      timeout: 10000,
-    }
-  );
+  try {
+    const response = await axios.get(
+      "https://aliexpress-datahub.p.rapidapi.com/item_search_3",
+      {
+        params: { q: keyword, page: 1, sort: "SALE_PRICE_ASC" },
+        headers: {
+          "X-RapidAPI-Key": apiKey,
+          "X-RapidAPI-Host": "aliexpress-datahub.p.rapidapi.com",
+        },
+        timeout: 10000,
+      }
+    );
 
-  const items = response.data?.result?.resultList || [];
-  console.log(`✅ AliExpress returned ${items.length} items for "${keyword}"`);
+    const items = response.data?.result?.resultList || [];
+    if (!items.length) return [];
 
-  if (!items.length) return [];
+    return items.map((item, index) => ({
+      id: index + 1,
+      name: (item.item?.title || "Unknown").slice(0, 70),
+      rating: parseFloat(item.item?.averageStar) || 4.0,
+      reviews: parseInt(item.item?.evaluate) || 0,
+      moq: 100,
+      price:
+        parseFloat(item.item?.sku?.def?.promotionPrice) ||
+        parseFloat(item.item?.sku?.def?.price) ||
+        0,
+      verified: false,
+      location: "China",
+      yearsInBusiness: 0,
+      responseRate: 90,
+      tags: [],
+      contactEmail: "",
+      contactPhone: "",
+      imageUrl: item.item?.image || "",
+      productUrl: `https://www.aliexpress.com/item/${item.item?.itemId}.html`,
+    }));
 
-  return items.map((item, index) => ({
-    id:              item.item?.itemId  || index + 1,
-    name:            (item.item?.title  || "Unknown").slice(0, 70),
-    rating:          parseFloat(item.item?.averageStar) || 4.0,
-    reviews:         parseInt(item.item?.evaluate)      || 0,
-    moq:             100,
-    price:
-      parseFloat(item.item?.sku?.def?.promotionPrice) ||
-      parseFloat(item.item?.sku?.def?.price)          ||
-      0,
-    verified:        false,
-    location:        "China",
-    yearsInBusiness: 0,
-    responseRate:    90,
-    tags:            [],
-    contactEmail:    "",
-    contactPhone:    "",
-    imageUrl:        item.item?.image || "",
-    productUrl:      `https://www.aliexpress.com/item/${item.item?.itemId}.html`,
-  }));
+  } catch (err) {
+    console.error("❌ AliExpress error:", err.message);
+    return [];
+  }
 }
 
+/* ─────────────────────────────────────────────────────────────
+   3️⃣ Playwright Scraper
+───────────────────────────────────────────────────────────── */
 
 async function searchAlibabaScraper({ keyword, pageSize = 20 }) {
-  console.log("🕷️  Trying Alibaba Playwright Scraper...");
+  console.log("🕷️ Using Playwright scraper...");
 
-  const browser = await chromium.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  });
-
-  const context = await browser.newContext({
-    viewport: { width: 1366, height: 768 },
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
-  });
-
-  const page = await context.newPage();
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
 
   try {
     await page.goto(
@@ -160,13 +145,11 @@ async function searchAlibabaScraper({ keyword, pageSize = 20 }) {
 
     await page.waitForTimeout(4000);
 
-    const products = await page.$$eval(
+    const results = await page.$$eval(
       ".organic-gallery-offer",
       (cards, pageSize) =>
         cards.slice(0, pageSize).map((card, index) => {
-          const title =
-            card.querySelector("h2")?.innerText?.trim() || null;
-
+          const title = card.querySelector("h2")?.innerText?.trim() || null;
           const priceText =
             card.querySelector(".elements-offer-price-normal__price")
               ?.innerText?.trim() || null;
@@ -174,9 +157,6 @@ async function searchAlibabaScraper({ keyword, pageSize = 20 }) {
           const supplier =
             card.querySelector(".organic-offer-company-name")
               ?.innerText?.trim() || "Unknown Supplier";
-
-          const link =
-            card.querySelector("a")?.getAttribute("href") || null;
 
           const priceMatch = priceText?.match(/[\d,.]+/);
           const price = priceMatch
@@ -197,224 +177,62 @@ async function searchAlibabaScraper({ keyword, pageSize = 20 }) {
             tags: ["Scraped"],
             contactEmail: "",
             contactPhone: "",
-            imageUrl: "",
-            productUrl: link?.startsWith("http") ? link : `https:${link}`
           };
         }),
       pageSize
     );
 
     await browser.close();
-
-    const cleaned = products.filter(p => p.name && p.price > 0);
-
-    console.log(`✅ Scraper returned ${cleaned.length} suppliers`);
-    return cleaned;
+    return results.filter(r => r.name && r.price > 0);
 
   } catch (err) {
-    console.error("❌ Scraper failed:", err.message);
     await browser.close();
+    console.error("❌ Scraper error:", err.message);
     return [];
   }
 }
 
-// ── Mock Data ─────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   4️⃣ Mock Fallback
+───────────────────────────────────────────────────────────── */
+
 function getMockData() {
-  console.log("📦 Using mock supplier data");
+  console.log("📦 Using mock data");
   return [
     {
-      id: 1, name: "Guangzhou Premium Furniture Co., Ltd",
-      rating: 4.8, reviews: 1247, moq: 500,  price: 45.50,
-      verified: true,  location: "Guangzhou, China",
-      yearsInBusiness: 12, responseRate: 98,
-      tags: ["Gold Supplier", "Verified", "Trade Assurance"],
-      contactEmail: "sales@gzpremium.com",
-      contactPhone: "+86 20 8888 9999",
-    },
-    {
-      id: 2, name: "Shanghai Wooden Products Factory",
-      rating: 4.6, reviews: 892, moq: 300, price: 42.00,
-      verified: true, location: "Shanghai, China",
-      yearsInBusiness: 8, responseRate: 95,
-      tags: ["Verified", "Trade Assurance"],
-      contactEmail: "info@shwoodenproducts.com",
-      contactPhone: "+86 21 5555 6666",
-    },
-    {
-      id: 3, name: "Foshan Elite Furniture Manufacturing",
-      rating: 4.9, reviews: 2134, moq: 1000, price: 38.75,
-      verified: true, location: "Foshan, China",
-      yearsInBusiness: 15, responseRate: 99,
-      tags: ["Gold Supplier", "Verified", "Audited"],
-      contactEmail: "export@foshanelite.com",
-      contactPhone: "+86 757 8888 1234",
-    },
-    {
-      id: 4, name: "Shenzhen Modern Chairs Ltd",
-      rating: 4.5, reviews: 567, moq: 200, price: 48.20,
-      verified: true, location: "Shenzhen, China",
-      yearsInBusiness: 6, responseRate: 92,
-      tags: ["Verified"],
-      contactEmail: "sales@szmodernchairs.com",
-      contactPhone: "+86 755 3333 4444",
-    },
-    {
-      id: 5, name: "Dongguan Quality Furniture Group",
-      rating: 4.7, reviews: 1456, moq: 800, price: 40.30,
-      verified: true, location: "Dongguan, China",
-      yearsInBusiness: 10, responseRate: 96,
-      tags: ["Gold Supplier", "Trade Assurance"],
-      contactEmail: "contact@dgquality.com",
-      contactPhone: "+86 769 7777 8888",
-    },
-    {
-      id: 6, name: "Hangzhou Premium Wood Products",
-      rating: 4.8, reviews: 1089, moq: 600, price: 44.80,
-      verified: true, location: "Hangzhou, China",
-      yearsInBusiness: 9, responseRate: 97,
-      tags: ["Verified", "Audited"],
-      contactEmail: "export@hzpremiumwood.com",
-      contactPhone: "+86 571 6666 7777",
-    },
-    {
-      id: 7, name: "Ningbo Furniture Export Center",
-      rating: 4.6, reviews: 734, moq: 350, price: 46.50,
-      verified: true, location: "Ningbo, China",
-      yearsInBusiness: 7, responseRate: 94,
-      tags: ["Gold Supplier", "Verified"],
-      contactEmail: "sales@nbfurniture.com",
-      contactPhone: "+86 574 8888 9999",
-    },
-    {
-      id: 8, name: "Suzhou Classic Furniture Manufacturing",
-      rating: 4.7, reviews: 981, moq: 450, price: 43.20,
-      verified: true, location: "Suzhou, China",
-      yearsInBusiness: 11, responseRate: 96,
-      tags: ["Gold Supplier", "Trade Assurance", "Verified"],
-      contactEmail: "info@suzhouclassic.com",
-      contactPhone: "+86 512 5555 6666",
-    },
-    {
-      id: 9, name: "Xiamen Wooden Chair Specialists",
-      rating: 4.5, reviews: 612, moq: 250, price: 47.90,
-      verified: true, location: "Xiamen, China",
-      yearsInBusiness: 6, responseRate: 93,
-      tags: ["Verified", "Trade Assurance"],
-      contactEmail: "sales@xmwoodenchairs.com",
-      contactPhone: "+86 592 3333 4444",
-    },
-    {
-      id: 10, name: "Qingdao Budget Furniture Ltd",
-      rating: 4.1, reviews: 234, moq: 100, price: 35.50,
-      verified: false, location: "Qingdao, China",
-      yearsInBusiness: 3, responseRate: 78,
-      tags: [],
-      contactEmail: "info@qdbudget.com",
-      contactPhone: "+86 532 1111 2222",
-    },
-    {
-      id: 11, name: "Wuhan Cheap Chairs Co.",
-      rating: 3.8, reviews: 145, moq: 50, price: 28.00,
-      verified: false, location: "Wuhan, China",
-      yearsInBusiness: 2, responseRate: 65,
-      tags: [],
-      contactEmail: "info@wuhancheap.com",
-      contactPhone: "+86 027 1111 0000",
-    },
-    {
-      id: 12, name: "Tianjin Basic Furniture Factory",
-      rating: 4.2, reviews: 312, moq: 200, price: 33.00,
-      verified: false, location: "Tianjin, China",
-      yearsInBusiness: 2, responseRate: 75,
-      tags: [],
-      contactEmail: "info@tjbasic.com",
-      contactPhone: "+86 022 2222 3333",
+      id: 1,
+      name: "Guangzhou Premium Furniture Co., Ltd",
+      rating: 4.8,
+      reviews: 1247,
+      moq: 500,
+      price: 45.5,
+      verified: true,
+      location: "Guangzhou, China",
+      yearsInBusiness: 12,
+      responseRate: 98,
+      tags: ["Gold Supplier"],
     },
   ];
 }
 
-// ── Main Export — Smart Fallback Chain ────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   ✅ FINAL SMART EXPORT
+───────────────────────────────────────────────────────────── */
+
 export async function searchSuppliers({ keyword, pageSize = 20 }) {
-  const hasAlibaba   = process.env.ALIBABA_APP_KEY &&
-                       process.env.ALIBABA_APP_KEY !== "your_app_key_here";
-  const hasRapidApi  = process.env.RAPIDAPI_KEY &&
-                       process.env.RAPIDAPI_KEY !== "your_rapidapi_key_here";
 
-  // ── Try Alibaba first ─────────────────────────────────────────────────────
-  if (hasAlibaba) {
-    try {
-      console.log("🏭 Trying Alibaba Official API...");
-      const results = await searchAlibabaOfficial({ keyword, pageSize });
-      if (results.length > 0) {
-        console.log(`✅ Alibaba returned ${results.length} suppliers`);
-        return results;
-      }
-      console.log("⚠️  Alibaba returned 0 results — trying AliExpress");
-    } catch (err) {
-      console.error("❌ Alibaba failed:", err.message);
-      console.log("⚠️  Falling back to AliExpress...");
-    }
-  }
+  // 1️⃣ Official Alibaba
+  const official = await searchAlibabaOfficial({ keyword, pageSize });
+  if (official.length) return official;
 
-  // ── Try AliExpress next ───────────────────────────────────────────────────
-  if (hasRapidApi) {
-    try {
-      console.log("🛒 Trying AliExpress RapidAPI...");
-      const results = await searchAliExpressRapid({ keyword, pageSize });
-      if (results.length > 0) return results;
-      console.log("⚠️  AliExpress returned 0 results — using mock");
-    } catch (err) {
-      console.error("❌ AliExpress failed:", err.message);
-      console.log("⚠️  Falling back to mock data...");
-    }
-  }
+  // 2️⃣ AliExpress
+  const rapid = await searchAliExpressRapid({ keyword, pageSize });
+  if (rapid.length) return rapid;
 
-  // ── Always works ──────────────────────────────────────────────────────────
-  export async function searchSuppliers({ keyword, pageSize = 20 }) {
-  const hasAlibaba  = process.env.ALIBABA_APP_KEY &&
-                      process.env.ALIBABA_APP_KEY !== "your_app_key_here";
+  // 3️⃣ Scraper
+  const scraped = await searchAlibabaScraper({ keyword, pageSize });
+  if (scraped.length) return scraped;
 
-  const hasRapidApi = process.env.RAPIDAPI_KEY &&
-                      process.env.RAPIDAPI_KEY !== "your_rapidapi_key_here";
-
-  // 1️⃣ Try Alibaba Official API
-  if (hasAlibaba) {
-    try {
-      console.log("🏭 Trying Alibaba Official API...");
-      const results = await searchAlibabaOfficial({ keyword, pageSize });
-      if (results.length > 0) {
-        console.log(`✅ Alibaba returned ${results.length} suppliers`);
-        return results;
-      }
-      console.log("⚠️  Alibaba returned 0 results");
-    } catch (err) {
-      console.error("❌ Alibaba failed:", err.message);
-    }
-  }
-
-  // 2️⃣ Try AliExpress
-  if (hasRapidApi) {
-    try {
-      console.log("🛒 Trying AliExpress RapidAPI...");
-      const results = await searchAliExpressRapid({ keyword, pageSize });
-      if (results.length > 0) return results;
-      console.log("⚠️  AliExpress returned 0 results");
-    } catch (err) {
-      console.error("❌ AliExpress failed:", err.message);
-    }
-  }
-
-  // 3️⃣ Try Playwright Scraper
-  try {
-    const scraped = await searchAlibabaScraper({ keyword, pageSize });
-    if (scraped.length > 0) return scraped;
-    console.log("⚠️  Scraper returned 0 results");
-  } catch (err) {
-    console.error("❌ Scraper error:", err.message);
-  }
-
-  // 4️⃣ Always fallback
-  console.log("📦 Falling back to mock data");
+  // 4️⃣ Mock
   return getMockData();
-}
 }
