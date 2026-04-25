@@ -1,5 +1,7 @@
 import axios from "axios";
 import crypto from "crypto";
+import { chromium } from "playwright";
+
 
 // ── Alibaba Official API ──────────────────────────────────────────────────────
 async function searchAlibabaOfficial({ keyword, pageSize = 20 }) {
@@ -131,6 +133,89 @@ async function searchAliExpressRapid({ keyword, pageSize = 20 }) {
     imageUrl:        item.item?.image || "",
     productUrl:      `https://www.aliexpress.com/item/${item.item?.itemId}.html`,
   }));
+}
+
+
+async function searchAlibabaScraper({ keyword, pageSize = 20 }) {
+  console.log("🕷️  Trying Alibaba Playwright Scraper...");
+
+  const browser = await chromium.launch({
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  });
+
+  const context = await browser.newContext({
+    viewport: { width: 1366, height: 768 },
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
+  });
+
+  const page = await context.newPage();
+
+  try {
+    await page.goto(
+      `https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(keyword)}`,
+      { waitUntil: "networkidle", timeout: 60000 }
+    );
+
+    await page.waitForTimeout(4000);
+
+    const products = await page.$$eval(
+      ".organic-gallery-offer",
+      (cards, pageSize) =>
+        cards.slice(0, pageSize).map((card, index) => {
+          const title =
+            card.querySelector("h2")?.innerText?.trim() || null;
+
+          const priceText =
+            card.querySelector(".elements-offer-price-normal__price")
+              ?.innerText?.trim() || null;
+
+          const supplier =
+            card.querySelector(".organic-offer-company-name")
+              ?.innerText?.trim() || "Unknown Supplier";
+
+          const link =
+            card.querySelector("a")?.getAttribute("href") || null;
+
+          const priceMatch = priceText?.match(/[\d,.]+/);
+          const price = priceMatch
+            ? parseFloat(priceMatch[0].replace(/,/g, ""))
+            : 0;
+
+          return {
+            id: index + 1,
+            name: supplier,
+            rating: 4.5,
+            reviews: 0,
+            moq: 100,
+            price,
+            verified: false,
+            location: "China",
+            yearsInBusiness: 3,
+            responseRate: 85,
+            tags: ["Scraped"],
+            contactEmail: "",
+            contactPhone: "",
+            imageUrl: "",
+            productUrl: link?.startsWith("http") ? link : `https:${link}`
+          };
+        }),
+      pageSize
+    );
+
+    await browser.close();
+
+    const cleaned = products.filter(p => p.name && p.price > 0);
+
+    console.log(`✅ Scraper returned ${cleaned.length} suppliers`);
+    return cleaned;
+
+  } catch (err) {
+    console.error("❌ Scraper failed:", err.message);
+    await browser.close();
+    return [];
+  }
 }
 
 // ── Mock Data ─────────────────────────────────────────────────────────────────
@@ -285,5 +370,51 @@ export async function searchSuppliers({ keyword, pageSize = 20 }) {
   }
 
   // ── Always works ──────────────────────────────────────────────────────────
+  export async function searchSuppliers({ keyword, pageSize = 20 }) {
+  const hasAlibaba  = process.env.ALIBABA_APP_KEY &&
+                      process.env.ALIBABA_APP_KEY !== "your_app_key_here";
+
+  const hasRapidApi = process.env.RAPIDAPI_KEY &&
+                      process.env.RAPIDAPI_KEY !== "your_rapidapi_key_here";
+
+  // 1️⃣ Try Alibaba Official API
+  if (hasAlibaba) {
+    try {
+      console.log("🏭 Trying Alibaba Official API...");
+      const results = await searchAlibabaOfficial({ keyword, pageSize });
+      if (results.length > 0) {
+        console.log(`✅ Alibaba returned ${results.length} suppliers`);
+        return results;
+      }
+      console.log("⚠️  Alibaba returned 0 results");
+    } catch (err) {
+      console.error("❌ Alibaba failed:", err.message);
+    }
+  }
+
+  // 2️⃣ Try AliExpress
+  if (hasRapidApi) {
+    try {
+      console.log("🛒 Trying AliExpress RapidAPI...");
+      const results = await searchAliExpressRapid({ keyword, pageSize });
+      if (results.length > 0) return results;
+      console.log("⚠️  AliExpress returned 0 results");
+    } catch (err) {
+      console.error("❌ AliExpress failed:", err.message);
+    }
+  }
+
+  // 3️⃣ Try Playwright Scraper
+  try {
+    const scraped = await searchAlibabaScraper({ keyword, pageSize });
+    if (scraped.length > 0) return scraped;
+    console.log("⚠️  Scraper returned 0 results");
+  } catch (err) {
+    console.error("❌ Scraper error:", err.message);
+  }
+
+  // 4️⃣ Always fallback
+  console.log("📦 Falling back to mock data");
   return getMockData();
+}
 }
