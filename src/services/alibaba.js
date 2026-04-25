@@ -5,22 +5,23 @@ import { chromium } from "playwright";
 /* ─────────────────────────────────────────────────────────────
    1️⃣ Alibaba Official API
 ───────────────────────────────────────────────────────────── */
+let lastScrapeTime = 0;
 
 async function searchAlibabaOfficial({ keyword, pageSize = 20 }) {
-  const appKey    = process.env.ALIBABA_APP_KEY;
+  const appKey = process.env.ALIBABA_APP_KEY;
   const appSecret = process.env.ALIBABA_APP_SECRET;
 
   if (!appKey || !appSecret) return [];
 
   const params = {
-    app_key:     appKey,
-    timestamp:   Date.now().toString(),
+    app_key: appKey,
+    timestamp: Date.now().toString(),
     sign_method: "sha1",
-    keywords:    keyword,
-    page_size:   pageSize.toString(),
-    page_no:     "1",
-    country:     "CN",
-    language:    "en_US",
+    keywords: keyword,
+    page_size: pageSize.toString(),
+    page_no: "1",
+    country: "CN",
+    language: "en_US",
   };
 
   const sortedKeys = Object.keys(params).sort();
@@ -58,21 +59,21 @@ function normalizeAlibabaResults(rawData) {
   if (!products.length) return [];
 
   return products.map((product, index) => ({
-    id:              product.productId   || index + 1,
-    name:            product.companyName || product.supplierName || "Unknown Supplier",
-    rating:          parseFloat(product.supplierRating) || 4.5,
-    reviews:         parseInt(product.reviewCount) || 0,
-    moq:             parseInt(product.minOrderQuantity) || 100,
-    price:           parseFloat(product.priceInfo?.price || product.price) || 0,
-    verified:        product.supplierVerified || false,
-    location:        `${product.city || "China"}, ${product.country || "CN"}`,
+    id: product.productId || index + 1,
+    name: product.companyName || product.supplierName || "Unknown Supplier",
+    rating: parseFloat(product.supplierRating) || 4.5,
+    reviews: parseInt(product.reviewCount) || 0,
+    moq: parseInt(product.minOrderQuantity) || 100,
+    price: parseFloat(product.priceInfo?.price || product.price) || 0,
+    verified: product.supplierVerified || false,
+    location: `${product.city || "China"}, ${product.country || "CN"}`,
     yearsInBusiness: parseInt(product.businessYears) || 0,
-    responseRate:    parseInt(product.responseRate) || 85,
-    tags:            product.supplierBadges || [],
-    contactEmail:    product.contactEmail || "",
-    contactPhone:    product.contactPhone || "",
-    imageUrl:        product.imageUrl || "",
-    productUrl:      product.productDetailUrl || "",
+    responseRate: parseInt(product.responseRate) || 85,
+    tags: product.supplierBadges || [],
+    contactEmail: product.contactEmail || "",
+    contactPhone: product.contactPhone || "",
+    imageUrl: product.imageUrl || "",
+    productUrl: product.productDetailUrl || "",
   }));
 }
 
@@ -132,31 +133,65 @@ async function searchAliExpressRapid({ keyword, pageSize = 20 }) {
 ───────────────────────────────────────────────────────────── */
 
 async function searchAlibabaScraper({ keyword, pageSize = 20 }) {
-  console.log("🕷️ Using Playwright scraper...");
 
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  const now = Date.now();
+  if (now - lastScrapeTime < 5000) {
+    console.log("⏳ Throttling scraper...");
+    return [];
+  }
+  lastScrapeTime = now;
+
+  console.log("🕷️ Using Playwright scraper with proxy...");
+
+  const targetUrl = `https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(keyword)}`;
+
+  // ✅ Route through ScraperAPI
+  const finalUrl = process.env.SCRAPERAPI_KEY
+    ? `http://api.scraperapi.com?api_key=${process.env.SCRAPERAPI_KEY}&url=${encodeURIComponent(targetUrl)}&render=true`
+    : targetUrl;
+
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-blink-features=AutomationControlled"
+    ]
+  });
+
+  const context = await browser.newContext({
+    viewport: { width: 1366, height: 768 },
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+  });
+
+  const page = await context.newPage();
 
   try {
-    await page.goto(
-      `https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(keyword)}`,
-      { waitUntil: "networkidle", timeout: 60000 }
-    );
+    await page.goto(finalUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
+    });
 
-    await page.waitForTimeout(4000);
+    // ✅ Wait for results
+    await page.waitForSelector(".organic-gallery-offer", {
+      timeout: 15000,
+    });
 
     const results = await page.$$eval(
       ".organic-gallery-offer",
       (cards, pageSize) =>
         cards.slice(0, pageSize).map((card, index) => {
-          const title = card.querySelector("h2")?.innerText?.trim() || null;
-          const priceText =
-            card.querySelector(".elements-offer-price-normal__price")
-              ?.innerText?.trim() || null;
+          const title =
+            card.querySelector("h2")?.innerText?.trim() || null;
 
           const supplier =
             card.querySelector(".organic-offer-company-name")
               ?.innerText?.trim() || "Unknown Supplier";
+
+          const priceText =
+            card.querySelector(".elements-offer-price-normal__price")
+              ?.innerText?.trim() || null;
 
           const priceMatch = priceText?.match(/[\d,.]+/);
           const price = priceMatch
@@ -183,11 +218,17 @@ async function searchAlibabaScraper({ keyword, pageSize = 20 }) {
     );
 
     await browser.close();
-    return results.filter(r => r.name && r.price > 0);
+
+    const cleaned = results.filter(
+      (r) => r.name && r.price && r.price > 0
+    );
+
+    console.log(`✅ Scraper returned ${cleaned.length} suppliers`);
+    return cleaned;
 
   } catch (err) {
-    await browser.close();
     console.error("❌ Scraper error:", err.message);
+    await browser.close();
     return [];
   }
 }
