@@ -133,102 +133,56 @@ async function searchAliExpressRapid({ keyword, pageSize = 20 }) {
 ───────────────────────────────────────────────────────────── */
 
 async function searchAlibabaScraper({ keyword, pageSize = 20 }) {
+  console.log("🕷️ Using ScraperAPI direct mode...");
 
-  const now = Date.now();
-  if (now - lastScrapeTime < 5000) {
-    console.log("⏳ Throttling scraper...");
+  if (!process.env.SCRAPERAPI_KEY) {
+    console.log("⚠️ No ScraperAPI key set");
     return [];
   }
-  lastScrapeTime = now;
-
-  console.log("🕷️ Using Playwright scraper with proxy...");
 
   const targetUrl = `https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(keyword)}`;
 
-  // ✅ Route through ScraperAPI
-  const finalUrl = process.env.SCRAPERAPI_KEY
-    ? `http://api.scraperapi.com?api_key=${process.env.SCRAPERAPI_KEY}&url=${encodeURIComponent(targetUrl)}&render=true`
-    : targetUrl;
-
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-blink-features=AutomationControlled"
-    ]
-  });
-
-  const context = await browser.newContext({
-    viewport: { width: 1366, height: 768 },
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-  });
-
-  const page = await context.newPage();
+  const scraperUrl = `https://api.scraperapi.com/?api_key=${process.env.SCRAPERAPI_KEY}&url=${encodeURIComponent(targetUrl)}&render=false`;
 
   try {
-    await page.goto(finalUrl, {
-      waitUntil: "domcontentloaded",
+    const response = await axios.get(scraperUrl, {
       timeout: 30000,
+      headers: {
+        "User-Agent": "Mozilla/5.0"
+      }
     });
 
-    // ✅ Wait for results
-    await page.waitForSelector(".organic-gallery-offer", {
-      timeout: 15000,
-    });
+    const html = response.data;
 
-    const results = await page.$$eval(
-      ".organic-gallery-offer",
-      (cards, pageSize) =>
-        cards.slice(0, pageSize).map((card, index) => {
-          const title =
-            card.querySelector("h2")?.innerText?.trim() || null;
+    if (!html || html.length < 5000) {
+      console.log("⚠️ ScraperAPI returned small response (possibly blocked)");
+      return [];
+    }
 
-          const supplier =
-            card.querySelector(".organic-offer-company-name")
-              ?.innerText?.trim() || "Unknown Supplier";
+    // ✅ Simple HTML parsing (basic extraction)
+    const matches = [...html.matchAll(/"companyName":"(.*?)"/g)];
 
-          const priceText =
-            card.querySelector(".elements-offer-price-normal__price")
-              ?.innerText?.trim() || null;
+    const suppliers = matches.slice(0, pageSize).map((match, index) => ({
+      id: index + 1,
+      name: match[1],
+      rating: 4.5,
+      reviews: 0,
+      moq: 100,
+      price: 40 + index, // placeholder until price parser added
+      verified: false,
+      location: "China",
+      yearsInBusiness: 3,
+      responseRate: 85,
+      tags: ["Scraped"],
+      contactEmail: "",
+      contactPhone: ""
+    }));
 
-          const priceMatch = priceText?.match(/[\d,.]+/);
-          const price = priceMatch
-            ? parseFloat(priceMatch[0].replace(/,/g, ""))
-            : 0;
-
-          return {
-            id: index + 1,
-            name: supplier,
-            rating: 4.5,
-            reviews: 0,
-            moq: 100,
-            price,
-            verified: false,
-            location: "China",
-            yearsInBusiness: 3,
-            responseRate: 85,
-            tags: ["Scraped"],
-            contactEmail: "",
-            contactPhone: "",
-          };
-        }),
-      pageSize
-    );
-
-    await browser.close();
-
-    const cleaned = results.filter(
-      (r) => r.name && r.price && r.price > 0
-    );
-
-    console.log(`✅ Scraper returned ${cleaned.length} suppliers`);
-    return cleaned;
+    console.log(`✅ ScraperAPI extracted ${suppliers.length} suppliers`);
+    return suppliers;
 
   } catch (err) {
-    console.error("❌ Scraper error:", err.message);
-    await browser.close();
+    console.error("❌ ScraperAPI failed:", err.message);
     return [];
   }
 }
