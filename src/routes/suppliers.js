@@ -4,12 +4,11 @@ import { searchSuppliers } from "../services/alibaba.js";
 import { scoreSuppliers, categorizeSuppliers } from "../services/scoring.js";
 
 const router = express.Router();
-const cache = new NodeCache({ stdTTL: 3600 });
+const cache  = new NodeCache({ stdTTL: 3600 });
 
 router.get("/test", (_req, res) => {
   res.json({
-    message: "✅ Suppliers route is working!",
-    alibaba:  !!process.env.ALIBABA_APP_KEY,
+    message:  "✅ Suppliers route working",
     rapidApi: !!process.env.RAPIDAPI_KEY,
   });
 });
@@ -40,13 +39,17 @@ router.post("/search", async (req, res) => {
       return res.json({ ...cached, fromCache: true });
     }
 
-    // Uses Alibaba → AliExpress → Mock fallback chain
-    const rawSuppliers = await searchSuppliers({ keyword, pageSize: 20 });
+    // Pass quantity so price tier extraction works
+    const rawSuppliers = await searchSuppliers({
+      keyword,
+      pageSize: 20,
+      quantity: qty,
+    });
 
     const scored = scoreSuppliers(rawSuppliers, { budget: bdg, quantity: qty });
     const result = categorizeSuppliers(scored);
 
-    console.log(`✅ Done: ${result.qualifiedCount} qualified, ${result.filteredOut.length} filtered out\n`);
+    console.log(`✅ Done: ${result.qualifiedCount} qualified\n`);
 
     cache.set(cacheKey, result);
     res.json({ ...result, fromCache: false });
