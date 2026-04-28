@@ -31,15 +31,15 @@ router.post("/search", async (req, res) => {
     console.log(`   Budget:      $${bdg}`);
     console.log(`   Destination: ${destination || "not specified"}`);
 
+    // Check cache
     const cacheKey = `search_${keyword}_${qty}_${bdg}`;
     const cached   = cache.get(cacheKey);
-
     if (cached) {
       console.log("⚡ Cache hit\n");
       return res.json({ ...cached, fromCache: true });
     }
 
-    // Pass quantity so price tier extraction works
+    // Fetch — passes quantity for correct price tier
     const rawSuppliers = await searchSuppliers({
       keyword,
       pageSize: 20,
@@ -49,7 +49,7 @@ router.post("/search", async (req, res) => {
     const scored = scoreSuppliers(rawSuppliers, { budget: bdg, quantity: qty });
     const result = categorizeSuppliers(scored);
 
-    console.log(`✅ Done: ${result.qualifiedCount} qualified\n`);
+    console.log(`✅ Done: ${result.qualifiedCount} suppliers returned\n`);
 
     cache.set(cacheKey, result);
     res.json({ ...result, fromCache: false });

@@ -2,7 +2,7 @@ export function scoreSuppliers(suppliers, userRequirements) {
   const { budget = 50000, quantity = 1000 } = userRequirements;
   const budgetPerUnit = budget / quantity;
 
-  // Get price range for relative scoring
+  // Price range for relative scoring
   const prices     = suppliers.map(s => s.price).filter(p => p > 0);
   const minPrice   = prices.length ? Math.min(...prices) : 0;
   const maxPrice   = prices.length ? Math.max(...prices) : 0;
@@ -13,20 +13,17 @@ export function scoreSuppliers(suppliers, userRequirements) {
     // ── 1. Price Score (0-100) ────────────────────────────────────────────────
     let priceScore = 50;
     if (supplier.price > 0 && prices.length > 1) {
-      // How cheap relative to others (0-60 points)
       const relativeScore = ((maxPrice - supplier.price) / priceRange) * 60;
-      // How it fits the budget (0-40 points)
-      const budgetScore = supplier.price <= budgetPerUnit
+      const budgetScore   = supplier.price <= budgetPerUnit
         ? 40
         : Math.max(0, 40 - ((supplier.price - budgetPerUnit) / budgetPerUnit) * 40);
       priceScore = Math.round(Math.min(100, relativeScore + budgetScore));
     } else if (supplier.price > 0) {
-      // Only one price available — score based on budget fit
       priceScore = supplier.price <= budgetPerUnit ? 80 : 40;
     }
 
     // ── 2. Quality Score (0-100) ──────────────────────────────────────────────
-    const rating       = supplier.rating || 4.0;
+    const rating       = supplier.rating  || 4.0;
     const reviews      = supplier.reviews || 0;
     const ratingScore  = (rating / 5) * 80;
     const reviewScore  = Math.min(20, (reviews / 500) * 20);
@@ -37,24 +34,20 @@ export function scoreSuppliers(suppliers, userRequirements) {
     const responseRate     = supplier.responseRate    || 85;
     const yearsScore       = Math.min(40, yearsInBusiness * 3);
     const responseScore    = (responseRate / 100) * 30;
-    const verifiedScore    = supplier.verified         ? 20 : 0;
-    const tradeScore       = supplier.tradeAssurance   ? 10 : 0;
+    const verifiedScore    = supplier.verified       ? 15 : 0;
+    const tradeScore       = supplier.tradeAssurance ? 10 : 0;
+    const goldScore        = supplier.goldSupplier   ? 5  : 0;
     const reliabilityScore = Math.round(Math.min(100,
-      yearsScore + responseScore + verifiedScore + tradeScore
+      yearsScore + responseScore + verifiedScore + tradeScore + goldScore
     ));
 
     // ── 4. MOQ Score (0-100) ──────────────────────────────────────────────────
     const moq = supplier.moq || 1;
-    let moqScore = 80;
-    if (moq <= quantity) {
-      moqScore = 100;
-    } else {
-      moqScore = Math.max(10, Math.round(
-        100 - ((moq - quantity) / quantity) * 60
-      ));
-    }
+    const moqScore = moq <= quantity
+      ? 100
+      : Math.max(10, Math.round(100 - ((moq - quantity) / quantity) * 60));
 
-    // ── 5. Final AI Score (weighted) ──────────────────────────────────────────
+    // ── 5. Final weighted AI Score ────────────────────────────────────────────
     const aiScore = Math.round(
       priceScore       * 0.35 +
       qualityScore     * 0.30 +
@@ -64,23 +57,21 @@ export function scoreSuppliers(suppliers, userRequirements) {
 
     return {
       ...supplier,
-      priceScore:      Math.round(priceScore),
-      qualityScore:    Math.round(qualityScore),
+      priceScore:       Math.round(priceScore),
+      qualityScore:     Math.round(qualityScore),
       reliabilityScore: Math.round(reliabilityScore),
-      moqScore:        Math.round(moqScore),
+      moqScore:         Math.round(moqScore),
       aiScore,
-      isQualified:     true,
+      isQualified:      true,
     };
   });
 
-  // Sort by AI score descending
   return scored.sort((a, b) => b.aiScore - a.aiScore);
 }
 
 export function categorizeSuppliers(scoredSuppliers) {
-  // Log for debugging
   console.log("Scored suppliers:", scoredSuppliers.slice(0, 5).map(s => ({
-    name:    s.name.slice(0, 50),
+    name:    s.name.slice(0, 40),
     price:   s.price,
     aiScore: s.aiScore,
   })));
