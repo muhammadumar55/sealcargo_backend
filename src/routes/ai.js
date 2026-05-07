@@ -222,4 +222,89 @@ function getMockReply(message, context) {
   return "I understand your inquiry. Based on your product requirements and target market, I recommend reviewing the qualified suppliers list and selecting one that matches your MOQ and budget. Would you like specific advice about any supplier or cost component?";
 }
 
+
+// ── Helper: Refine user search query using Grok ───────────────────────────────
+// Converts vague queries into precise Alibaba search keywords
+export async function refineKeyword({ userQuery, productType, material }) {
+  const apiKey = process.env.GROK_API_KEY;
+
+  // Build a fallback keyword (used when Grok unavailable)
+  const fallback = [userQuery, productType, material]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  // No Grok key — return basic keyword
+  if (!apiKey || apiKey === "your_grok_api_key_here") {
+    console.log("⚠️  No Grok key — using basic keyword:", fallback);
+    return fallback;
+  }
+
+  try {
+    const response = await axios.post(
+      "https://api.x.ai/v1/chat/completions",
+      {
+        model: "grok-3-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a product search expert for Alibaba.com B2B marketplace.
+Your job: convert the user's product description into the BEST 3-6 word English keyword 
+that will return the most accurate results on Alibaba's search engine.
+
+Rules:
+- Return ONLY the keyword — NO explanations, NO quotes, NO punctuation
+- Use English (Alibaba search works best in English)
+- Be specific and industry-standard (e.g., "concrete block making machine" not "block machine")
+- Add product modifiers if helpful (e.g., "automatic", "industrial", "commercial")
+- Include the material if it adds clarity
+- Maximum 6 words
+- DO NOT include words like "cheap", "best", "buy"
+
+Examples:
+User: "block-making machines" → "concrete block making machine"
+User: "wooden chairs for restaurant" → "restaurant wooden dining chair"
+User: "phone cases" → "silicone mobile phone case"
+User: "I want to import LED bulbs" → "LED bulb light wholesale"`,
+          },
+          {
+            role: "user",
+            content: `User query: "${userQuery || "not provided"}"
+Product category: "${productType || "not provided"}"
+Material: "${material || "not provided"}"
+
+Return the best Alibaba search keyword:`,
+          },
+        ],
+        temperature: 0.3,
+        max_tokens: 30,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 10000,
+      }
+    );
+
+    let refined = response.data.choices?.[0]?.message?.content?.trim() || fallback;
+
+    // Clean up: remove quotes, periods, newlines
+    refined = refined.replace(/["'`.\n]/g, "").trim();
+
+    // Safety: if Grok returns garbage, fallback
+    if (!refined || refined.length < 3 || refined.length > 80) {
+      console.log("⚠️  Grok returned invalid keyword, using fallback");
+      return fallback;
+    }
+
+    console.log(`🤖 Grok refined keyword: "${userQuery}" → "${refined}"`);
+    return refined;
+  } catch (error) {
+    console.error("❌ Grok refine error:", error.message);
+    return fallback;
+  }
+}
+
 export default router;
