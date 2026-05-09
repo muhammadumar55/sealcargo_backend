@@ -50,7 +50,7 @@ router.post("/chat", async (req, res) => {
           "Content-Type": "application/json",
         },
         timeout: 15000,
-      }
+      },
     );
 
     const reply =
@@ -59,7 +59,6 @@ router.post("/chat", async (req, res) => {
 
     console.log(`✅ Grok responded (${reply.length} chars)`);
     res.json({ reply });
-
   } catch (error) {
     console.error("❌ Grok API error:", error.response?.data || error.message);
     // Fallback to mock
@@ -72,86 +71,90 @@ router.post("/costs", async (req, res) => {
   const { supplier, quantity, budget, destination, productType } = req.body;
 
   if (!supplier || !quantity) {
-    return res.status(400).json({ error: "supplier and quantity are required" });
+    return res
+      .status(400)
+      .json({ error: "supplier and quantity are required" });
   }
 
-  const qty          = parseInt(quantity)          || 1000;
-  const pricePerUnit = parseFloat(supplier.price)  || 40;
+  const qty = parseInt(quantity) || 1000;
+  const pricePerUnit = parseFloat(supplier.price) || 40;
 
   // Product cost
   const productCost = Math.round(pricePerUnit * qty);
 
   // Shipping rates by destination — plain JS object, no TypeScript
   const shippingRates = {
-    US:    4200,
-    GT:    3800,
-    MX:    3500,
-    CA:    4800,
+    US: 4200,
+    GT: 3800,
+    MX: 3500,
+    CA: 4800,
     other: 5000,
   };
   const shipping = shippingRates[destination] || 4200;
 
   // Duty rates by product type
   const dutyRates = {
-    furniture:   0.06,
-    electronics: 0.00,
-    textiles:    0.12,
-    machinery:   0.02,
-    other:       0.05,
+    furniture: 0.06,
+    electronics: 0.0,
+    textiles: 0.12,
+    machinery: 0.02,
+    other: 0.05,
   };
-  const dutyRate     = dutyRates[productType] || 0.06;
+  const dutyRate = dutyRates[productType] || 0.06;
   const importDuties = Math.round(productCost * dutyRate);
 
-  // Taxes — 1.5% of (product + duties)
-  const taxes = Math.round((productCost + importDuties) * 0.015);
+  // Taxes — IVA 12% of (product + duties)
+  const taxes = Math.round((productCost + importDuties) * 0.12);
 
-  // Insurance — 0.9% of product cost
-  const insurance = Math.round(productCost * 0.009);
+  // Insurance — 1% of product cost
+  const insurance = Math.round(productCost * 0.01);
 
   const totalCost = productCost + shipping + importDuties + taxes + insurance;
 
   const costBreakdown = {
-    supplier:    supplier.name,
-    quantity:    qty,
+    supplier: supplier.name,
+    quantity: qty,
     destination,
     productType,
     items: [
       {
-        label:   "Product Cost",
-        amount:  productCost,
+        label: "Product Cost",
+        amount: productCost,
         details: `${qty.toLocaleString()} units × $${pricePerUnit.toFixed(2)} per unit`,
-        color:   "#0B3C5D",
+        color: "#0B3C5D",
       },
       {
-        label:   "Ocean Freight",
-        amount:  shipping,
+        label: "Ocean Freight",
+        amount: shipping,
         details: `Estimated shipping to ${destination} • ~25 days transit`,
-        color:   "#3B82F6",
+        color: "#3B82F6",
       },
       {
-        label:   "Import Duties",
-        amount:  importDuties,
+        label: "Import Duties",
+        amount: importDuties,
         details: `${(dutyRate * 100).toFixed(0)}% duty rate for ${productType}`,
-        color:   "#60A5FA",
+        color: "#60A5FA",
       },
       {
-        label:   "VAT & Taxes",
-        amount:  taxes,
-        details: "Based on destination country regulations",
-        color:   "#93C5FD",
+        label: "VAT & Taxes",
+        amount: taxes,
+        details: "IVA 12% sobre producto + aranceles", // ← updated
+        color: "#93C5FD",
       },
       {
-        label:   "Insurance",
-        amount:  insurance,
-        details: "Cargo insurance • Full coverage • 0.9% of product value",
-        color:   "#BFDBFE",
+        label: "Insurance",
+        amount: insurance,
+        details: "Cargo insurance • Full coverage • 1% of product value", // ← updated
+        color: "#BFDBFE",
       },
     ],
     totalCost,
     perUnit: parseFloat((totalCost / qty).toFixed(2)),
   };
 
-  console.log(`✅ Cost breakdown: $${totalCost.toLocaleString()} total for ${supplier.name}`);
+  console.log(
+    `✅ Cost breakdown: $${totalCost.toLocaleString()} total for ${supplier.name}`,
+  );
   res.json(costBreakdown);
 });
 
@@ -164,17 +167,17 @@ router.post("/contact", async (req, res) => {
   }
 
   const lead = {
-    id:        `LEAD-${Date.now()}`,
+    id: `LEAD-${Date.now()}`,
     timestamp: new Date().toISOString(),
     supplier: {
-      name:     supplier.name,
-      email:    supplier.contactEmail,
-      phone:    supplier.contactPhone,
-      aiScore:  supplier.aiScore,
+      name: supplier.name,
+      email: supplier.contactEmail,
+      phone: supplier.contactPhone,
+      aiScore: supplier.aiScore,
       location: supplier.location,
     },
     user: {
-      name:  userName  || "Anonymous",
+      name: userName || "Anonymous",
       email: userEmail || "not provided",
     },
     inquiry: {
@@ -194,8 +197,9 @@ router.post("/contact", async (req, res) => {
 
   res.json({
     success: true,
-    leadId:  lead.id,
-    message: "Lead saved successfully. Our team will follow up within 24 hours.",
+    leadId: lead.id,
+    message:
+      "Lead saved successfully. Our team will follow up within 24 hours.",
     lead,
   });
 });
@@ -210,10 +214,20 @@ function getMockReply(message, context) {
   if (msg.includes("proveedor") || msg.includes("supplier")) {
     return "I've analyzed suppliers based on quality scores, response rates, years in business, and pricing. The top-ranked supplier has an AI score of 98/100. Would you like me to explain the ranking criteria in more detail?";
   }
-  if (msg.includes("aduana") || msg.includes("customs") || msg.includes("duty") || msg.includes("arancel")) {
+  if (
+    msg.includes("aduana") ||
+    msg.includes("customs") ||
+    msg.includes("duty") ||
+    msg.includes("arancel")
+  ) {
     return "For your import you'll need: Commercial Invoice, Packing List, Bill of Lading, and Certificate of Origin. Duty rates vary by HS code — furniture is typically 6%, electronics 0%, textiles 12%. I recommend working with a licensed customs broker for your first shipment.";
   }
-  if (msg.includes("tiempo") || msg.includes("time") || msg.includes("shipping") || msg.includes("envío")) {
+  if (
+    msg.includes("tiempo") ||
+    msg.includes("time") ||
+    msg.includes("shipping") ||
+    msg.includes("envío")
+  ) {
     return "Typical timeline: 15–20 days production + 20–30 days ocean freight + 3–5 days customs clearance. Total: approximately 40–55 days from order placement to delivery at your destination.";
   }
   if (msg.includes("hola") || msg.includes("hello") || msg.includes("hi")) {
@@ -221,7 +235,6 @@ function getMockReply(message, context) {
   }
   return "I understand your inquiry. Based on your product requirements and target market, I recommend reviewing the qualified suppliers list and selecting one that matches your MOQ and budget. Would you like specific advice about any supplier or cost component?";
 }
-
 
 // ── Helper: Refine user search query using Grok ───────────────────────────────
 // Converts vague queries into precise Alibaba search keywords
@@ -285,10 +298,11 @@ Return the best Alibaba search keyword:`,
           "Content-Type": "application/json",
         },
         timeout: 10000,
-      }
+      },
     );
 
-    let refined = response.data.choices?.[0]?.message?.content?.trim() || fallback;
+    let refined =
+      response.data.choices?.[0]?.message?.content?.trim() || fallback;
 
     // Clean up: remove quotes, periods, newlines
     refined = refined.replace(/["'`.\n]/g, "").trim();
