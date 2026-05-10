@@ -3,6 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import suppliersRouter from "./routes/suppliers.js";
 import aiRouter from "./routes/ai.js";
+import emailRoutes from "./routes/email.js";
+
 
 dotenv.config();
 
@@ -19,6 +21,8 @@ app.use(express.json());
 
 app.use("/api/suppliers", suppliersRouter);
 app.use("/api/ai", aiRouter);
+app.use("/api/email", emailRoutes);
+
 
 // Root route — no more "Cannot GET /"
 app.get("/", (_req, res) => {
