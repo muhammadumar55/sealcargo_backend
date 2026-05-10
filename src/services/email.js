@@ -3,19 +3,13 @@ import nodemailer from "nodemailer";
 // ── Reusable transporter ──
 const transporter = nodemailer.createTransport({
   host:   "smtp.gmail.com",
-  port:   587,
-  secure: false, // STARTTLS (not SSL)
+  port:   465,
+  secure: true,  // ← SSL instead of STARTTLS
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_APP_PASSWORD,
   },
-  // ✅ Critical for Railway / cloud providers
-  tls: {
-    rejectUnauthorized: false,
-  },
-  connectionTimeout: 10000,  // 10 seconds
-  greetingTimeout:   10000,
-  socketTimeout:     10000,
+  tls: { rejectUnauthorized: false },
 });
 
 // ── Verify connection on startup ──
