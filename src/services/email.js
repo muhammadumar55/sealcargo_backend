@@ -1,25 +1,16 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-// ── Reusable transporter ──
-const transporter = nodemailer.createTransport({
-  host:   "smtp.gmail.com",
-  port:   465,
-  secure: true,  // ← SSL instead of STARTTLS
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_APP_PASSWORD,
-  },
-  tls: { rejectUnauthorized: false },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// ── Verify connection on startup ──
-transporter.verify((error) => {
-  if (error) {
-    console.error("❌ Email service error:", error.message);
-  } else {
-    console.log("✅ Email service ready");
-  }
-});
+// ── Verify on startup ──
+if (!process.env.RESEND_API_KEY) {
+  console.error("❌ RESEND_API_KEY not set");
+} else {
+  console.log("✅ Resend email service ready");
+}
+
+// ── Use Resend's test domain OR your own verified domain ──
+const FROM_EMAIL = process.env.RESEND_FROM || "SEAL SmartTrade AI <onboarding@resend.dev>";
 
 // ── Email branding wrapper ──
 function emailWrapper(title, content) {
@@ -36,11 +27,10 @@ function emailWrapper(title, content) {
       <p style="margin: 0;">SEAL SmartTrade AI © ${new Date().getFullYear()}</p>
       <p style="margin: 5px 0 0;">Connecting Guatemala to Global Trade</p>
     </div>
-  </div>
-  `;
+  </div>`;
 }
 
-// ── 1. New Lead Notification (when user fills landing page form) ──
+// ── 1. New Lead Notification ──
 export async function sendLeadNotification({ name, email, query }) {
   const content = `
     <h2 style="color: #0B3C5D;">🎯 New Lead Captured!</h2>
@@ -58,16 +48,19 @@ export async function sendLeadNotification({ name, email, query }) {
     <p style="color: #64748b; font-size: 14px;">Follow up within 24 hours for best conversion.</p>
   `;
 
-  return transporter.sendMail({
-    from:    `"SEAL SmartTrade AI" <${process.env.EMAIL_USER}>`,
-    to:      process.env.ADMIN_EMAIL,
+  const { data, error } = await resend.emails.send({
+    from:    FROM_EMAIL,
+    to:      [process.env.ADMIN_EMAIL],
     replyTo: email,
     subject: `🎯 New Lead: ${name} - ${query.slice(0, 50)}`,
     html:    emailWrapper("New Lead Notification", content),
   });
+
+  if (error) throw new Error(error.message);
+  return data;
 }
 
-// ── 2. Quote Request (from FinalCTA "Request Quote" button) ──
+// ── 2. Quote Request ──
 export async function sendQuoteRequest({
   name, email, phone, company, message,
   supplierName, totalCost, productType, quantity, destination,
@@ -107,17 +100,22 @@ export async function sendQuoteRequest({
     </div>` : ""}
   `;
 
-  return transporter.sendMail({
-    from:    `"SEAL SmartTrade AI" <${process.env.EMAIL_USER}>`,
-    to:      process.env.ADMIN_EMAIL,
+  const { data, error } = await resend.emails.send({
+    from:    FROM_EMAIL,
+    to:      [process.env.ADMIN_EMAIL],
     replyTo: email,
     subject: `💰 Quote Request from ${name} - ${supplierName || "General"}`,
     html:    emailWrapper("Quote Request", content),
   });
+
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 // ── 3. Email Report to User (with PDF attachment) ──
-export async function sendReportToUser({ recipientEmail, recipientName, pdfBuffer, supplierName, totalCost }) {
+export async function sendReportToUser({
+  recipientEmail, recipientName, pdfBase64, supplierName, totalCost,
+}) {
   const content = `
     <h2 style="color: #0B3C5D;">📄 Your SEAL Import Analysis Report</h2>
     <p>Hello ${recipientName || "there"},</p>
@@ -132,18 +130,20 @@ export async function sendReportToUser({ recipientEmail, recipientName, pdfBuffe
     <p style="color: #64748b; margin-top: 30px;">Best regards,<br><strong>SEAL SmartTrade AI Team</strong></p>
   `;
 
-  return transporter.sendMail({
-    from:    `"SEAL SmartTrade AI" <${process.env.EMAIL_USER}>`,
-    to:      recipientEmail,
-    bcc:     process.env.ADMIN_EMAIL, // Admin gets a copy
+  const { data, error } = await resend.emails.send({
+    from:    FROM_EMAIL,
+    to:      [recipientEmail],
+    bcc:     [process.env.ADMIN_EMAIL],
     subject: `📄 Your SEAL Import Analysis Report - ${supplierName || "Analysis"}`,
     html:    emailWrapper("Your Import Analysis Report", content),
-    attachments: pdfBuffer ? [{
+    attachments: pdfBase64 ? [{
       filename: `SEAL_Report_${Date.now()}.pdf`,
-      content:  pdfBuffer,
-      encoding: "base64",
+      content:  pdfBase64,  // base64 string
     }] : [],
   });
+
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 export default { sendLeadNotification, sendQuoteRequest, sendReportToUser };
